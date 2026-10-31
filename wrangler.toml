@@ -1,4 +1,4 @@
-name = "cloudflare-b2"
+name = "mimclips"
 
 workers_dev = true
 compatibility_date = "2023-09-04"
