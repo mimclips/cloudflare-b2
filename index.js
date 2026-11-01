@@ -15,8 +15,8 @@ const RANGE_RETRY_ATTEMPTS = 3;
 
 function filterHeaders(headers) {
     return new Headers(Array.from(headers.entries())
-        .filter(pair => !(
-            UNSIGNABLE_HEADERS.includes(pair[0].toLowerCase()) || pair[0].toLowerCase().startsWith('cf-')
+        .filter(([key]) => !(
+            UNSIGNABLE_HEADERS.includes(key.toLowerCase()) || key.toLowerCase().startsWith('cf-')
         ))
     );
 }
