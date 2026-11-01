@@ -1,6 +1,6 @@
 {
   "name": "mimclips",
-  "main": "src/index.js",
+  "main": "index.js",
   "compatibility_date": "2026-10-31",
 
   "cache": {
