@@ -39,25 +39,9 @@ export default {
                 .join("/");
 
             // Build Backblaze URL
-            const target = `https://${host}/${encodedPath}`;
-
-            console.log("Incoming URL:", request.url);
-            console.log("Endpoint:", endpoint);
-            console.log("Bucket:", bucket);
-            console.log("Host:", host);
-            console.log("File path:", filePath);
-            console.log("Encoded path:", encodedPath);
-            console.log("Target URL:", target);
-            
-            let upstreamUrl;
-            
-            try {
-                upstreamUrl = new URL(target);
-            } catch (e) {
-                throw new Error(
-                    "URL construction failed: " + target + " | " + e.message
-                );
-            }
+            const upstreamUrl = new URL(
+                `https://${host}/${encodedPath}`
+            );
 
             upstreamUrl.search = incomingUrl.search;
 
