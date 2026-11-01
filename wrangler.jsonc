@@ -1,0 +1,20 @@
+{
+  "name": "mimclips",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-31",
+
+  "cache": {
+    "enabled": true
+  },
+
+  "ratelimits": [
+    {
+      "name": "VIDEO_LIMITER",
+      "namespace_id": "614001",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ]
+}
