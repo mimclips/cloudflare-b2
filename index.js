@@ -142,14 +142,17 @@ export default {
             );
 
         } catch (error) {
-            console.error(
-                "Worker exception:",
-                error.stack || error
+            console.error("WORKER ERROR:", error.stack || error);
+        
+            return new Response(
+                "Worker Error: " + error.message,
+                {
+                    status: 500,
+                    headers: {
+                        "Content-Type": "text/plain"
+                    }
+                }
             );
-
-            return new Response("Internal Worker Error", {
-                status: 500
-            });
         }
     }
 };
