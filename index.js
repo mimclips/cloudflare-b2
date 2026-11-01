@@ -16,7 +16,7 @@ const RANGE_RETRY_ATTEMPTS = 3;
 function filterHeaders(headers) {
     return new Headers(Array.from(headers.entries())
         .filter(pair => !(
-            UNSIGNABLE_HEADERS.includes(pair[0]) || pair[0].startsWith('cf-')
+            UNSIGNABLE_HEADERS.includes(pair[0].toLowerCase()) || pair[0].toLowerCase().startsWith('cf-')
         ))
     );
 }
@@ -35,7 +35,7 @@ export default {
             return new Response("B2 Proxy Active. Append your filename (e.g., /1.mp4)", { status: 200 });
         }
 
-        // FIX FOR ERROR 1042: Dynamically build a strict, clean public target URL
+        // Dynamically build a strict, clean public target URL to bypass loop protections
         const b2Url = `https://${env['BUCKET_NAME']}.${env['B2_ENDPOINT']}/${path}`;
 
         const headers = filterHeaders(request.headers);
@@ -46,7 +46,7 @@ export default {
             "service": "s3",
         });
 
-        // Generate the clean signed request using the string URL to break the proxy loop
+        // Generate the clean signed request
         const signedRequest = await client.sign(b2Url, {
             method: 'GET',
             headers: headers
