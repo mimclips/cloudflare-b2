@@ -10,7 +10,7 @@ main = "index.js"
 # echo "<your b2 application key>" | wrangler secret put B2_APPLICATION_KEY
 [vars]
 B2_APPLICATION_KEY_ID = "0051cf56c96de230000000001"
-B2_ENDPOINT = "s3.us-east-005.backblazeb2.com "
+B2_ENDPOINT = "s3.us-east-005.backblazeb2.com"
 B2_REGION = "us-east-005"
 # Set BUCKET_NAME to:
 #   "A Backblaze B2 bucket name" - direct all requests to the specified bucket
