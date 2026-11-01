@@ -3,44 +3,49 @@ import { AwsClient } from "aws4fetch";
 export default {
     async fetch(request, env) {
         if (!["GET", "HEAD"].includes(request.method)) {
-            return new Response("Method Not Allowed", {
-                status: 405
-            });
+            return new Response("Method Not Allowed", { status: 405 });
         }
 
         try {
-            // Configuration
-            const endpoint = env.B2_ENDPOINT;
-            const bucket = env.BUCKET_NAME;
-            const region = env.B2_REGION;
+            const endpoint = String(env.B2_ENDPOINT || "")
+                .replace(/^https?:\/\//i, "")
+                .replace(/\/+$/, "");
 
-            if (!endpoint || !bucket || !region ||
+            const bucket = String(env.BUCKET_NAME || "").trim();
+
+            const region = "us-east-005";
+
+            if (!endpoint || !bucket ||
                 !env.B2_APPLICATION_KEY_ID ||
                 !env.B2_APPLICATION_KEY) {
-                return new Response("Missing Worker configuration", {
-                    status: 500
-                });
+                throw new Error("Missing environment variables");
             }
 
-            // Get requested file path
+            // Build bucket hostname
+            const host = `${bucket}.${endpoint}`;
+
+            // Read requested filename
             const incomingUrl = new URL(request.url);
             const filePath = incomingUrl.pathname.replace(/^\/+/, "");
 
             if (!filePath) {
-                return new Response("B2 Proxy Active", {
-                    status: 200
-                });
+                return new Response("B2 Proxy Active", { status: 200 });
             }
 
-            // Construct Backblaze URL using path-style addressing
+            // Encode filename while preserving folder separators
+            const encodedPath = filePath
+                .split("/")
+                .map(segment => encodeURIComponent(segment))
+                .join("/");
+
+            // Build Backblaze URL
             const upstreamUrl = new URL(
-                `https://${endpoint}/${bucket}/${filePath}`
+                `https://${host}/${encodedPath}`
             );
 
-            // Preserve query parameters
             upstreamUrl.search = incomingUrl.search;
 
-            // Forward Range requests (important for video playback)
+            // Forward Range header for video playback
             const headers = new Headers();
 
             const range = request.headers.get("Range");
@@ -48,12 +53,12 @@ export default {
                 headers.set("Range", range);
             }
 
-            // AWS Signature V4
+            // Sign request
             const client = new AwsClient({
                 accessKeyId: env.B2_APPLICATION_KEY_ID,
                 secretAccessKey: env.B2_APPLICATION_KEY,
                 service: "s3",
-                region: region
+                region
             });
 
             const signedRequest = await client.sign(
@@ -64,20 +69,15 @@ export default {
                 }
             );
 
-            // Fetch from Backblaze
+            // Fetch file
             const response = await fetch(signedRequest);
 
-            // Return Backblaze errors unchanged for debugging
             if (!response.ok) {
-                const errorBody = await response.text();
+                const body = await response.text();
 
-                console.error(
-                    "Backblaze error:",
-                    response.status,
-                    errorBody
-                );
+                console.error("B2 response:", response.status, body);
 
-                return new Response(errorBody, {
+                return new Response(body, {
                     status: response.status,
                     headers: {
                         "Content-Type": "application/xml"
@@ -85,17 +85,13 @@ export default {
                 });
             }
 
-            // Return response, preserving video/range headers
             const responseHeaders = new Headers(response.headers);
-
-            // Don't make private files publicly cacheable by default
             responseHeaders.set("Cache-Control", "private, no-store");
 
             return new Response(
                 request.method === "HEAD" ? null : response.body,
                 {
                     status: response.status,
-                    statusText: response.statusText,
                     headers: responseHeaders
                 }
             );
