@@ -3,57 +3,79 @@ import { AwsClient } from "aws4fetch";
 export default {
     async fetch(request, env) {
         if (!["GET", "HEAD"].includes(request.method)) {
-            return new Response("Method Not Allowed", { status: 405 });
+            return new Response("Method Not Allowed", {
+                status: 405
+            });
         }
 
         try {
+            const incomingUrl = new URL(request.url);
+
+            // Only serve files, not arbitrary query-string variants
+            if (incomingUrl.search) {
+                return new Response("Query strings not supported", {
+                    status: 400
+                });
+            }
+
+            const filePath = incomingUrl.pathname.replace(/^\/+/, "");
+
+            if (!filePath) {
+                return new Response("B2 Proxy Active", {
+                    headers: {
+                        "Cache-Control": "no-store"
+                    }
+                });
+            }
+
+            // Basic abuse protection
+            // Only reached on cache misses when Workers Caching is enabled.
+            if (env.VIDEO_LIMITER) {
+                const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+
+                const { success } = await env.VIDEO_LIMITER.limit({
+                    key: ip
+                });
+
+                if (!success) {
+                    return new Response("Too Many Requests", {
+                        status: 429,
+                        headers: {
+                            "Retry-After": "60",
+                            "Cache-Control": "no-store"
+                        }
+                    });
+                }
+            }
+
+            // Backblaze configuration
             const endpoint = String(env.B2_ENDPOINT || "")
+                .trim()
                 .replace(/^https?:\/\//i, "")
                 .replace(/\/+$/, "");
 
             const bucket = String(env.BUCKET_NAME || "").trim();
 
-            const region = "us-east-005";
+            const region = String(env.B2_REGION || "");
 
-            if (!endpoint || !bucket ||
+            if (
+                !endpoint ||
+                !bucket ||
                 !env.B2_APPLICATION_KEY_ID ||
-                !env.B2_APPLICATION_KEY) {
-                throw new Error("Missing environment variables");
+                !env.B2_APPLICATION_KEY
+            ) {
+                throw new Error("Missing B2 configuration");
             }
 
-            // Build bucket hostname
+            // Construct upstream URL
             const host = `${bucket}.${endpoint}`;
 
-            // Read requested filename
-            const incomingUrl = new URL(request.url);
-            const filePath = incomingUrl.pathname.replace(/^\/+/, "");
-
-            if (!filePath) {
-                return new Response("B2 Proxy Active", { status: 200 });
-            }
-
-            // Encode filename while preserving folder separators
-            const encodedPath = filePath
-                .split("/")
-                .map(segment => encodeURIComponent(segment))
-                .join("/");
-
-            // Build Backblaze URL
             const upstreamUrl = new URL(
-                `https://${host}/${encodedPath}`
+                incomingUrl.pathname,
+                `https://${host}`
             );
 
-            upstreamUrl.search = incomingUrl.search;
-
-            // Forward Range header for video playback
-            const headers = new Headers();
-
-            const range = request.headers.get("Range");
-            if (range) {
-                headers.set("Range", range);
-            }
-
-            // Sign request
+            // AWS Signature V4
             const client = new AwsClient({
                 accessKeyId: env.B2_APPLICATION_KEY_ID,
                 secretAccessKey: env.B2_APPLICATION_KEY,
@@ -64,45 +86,70 @@ export default {
             const signedRequest = await client.sign(
                 upstreamUrl.toString(),
                 {
-                    method: request.method,
-                    headers
+                    method: request.method
                 }
             );
 
-            // Fetch file
-            const response = await fetch(signedRequest);
+            // IMPORTANT:
+            // Do not forward Range headers.
+            // Workers Caching strips incoming Range headers,
+            // caches the complete 200 response, and handles
+            // partial responses automatically.
 
-            if (!response.ok) {
-                const body = await response.text();
+            const b2Response = await fetch(signedRequest);
 
-                console.error("B2 response:", response.status, body);
+            if (!b2Response.ok) {
+                const errorBody = await b2Response.text();
 
-                return new Response(body, {
-                    status: response.status,
+                console.error(
+                    "Backblaze error:",
+                    b2Response.status,
+                    errorBody
+                );
+
+                return new Response(errorBody, {
+                    status: b2Response.status,
                     headers: {
-                        "Content-Type": "application/xml"
+                        "Content-Type":
+                            b2Response.headers.get("Content-Type") ||
+                            "application/xml",
+                        "Cache-Control": "no-store"
                     }
                 });
             }
 
-            const responseHeaders = new Headers(response.headers);
-            responseHeaders.set("Cache-Control", "private, no-store");
+            const responseHeaders = new Headers(b2Response.headers);
+
+            // Browser cache: 1 hour
+            // Cloudflare cache: 24 hours
+            responseHeaders.set(
+                "Cache-Control",
+                "public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600"
+            );
+
+            // HEAD requests must not populate the cache with
+            // a bodyless response.
+            if (request.method === "HEAD") {
+                responseHeaders.set("Cache-Control", "no-store");
+            }
 
             return new Response(
-                request.method === "HEAD" ? null : response.body,
+                request.method === "HEAD" ? null : b2Response.body,
                 {
-                    status: response.status,
+                    status: b2Response.status,
                     headers: responseHeaders
                 }
             );
 
         } catch (error) {
-            console.error("Worker exception:", error.stack || error);
-
-            return new Response(
-                "Worker Error: " + error.message,
-                { status: 500 }
+            console.error(
+                "Worker exception:",
+                error.stack || error
             );
+
+            return new Response("Internal Worker Error", {
+                status: 500
+            });
         }
     }
 };
